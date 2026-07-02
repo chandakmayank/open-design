@@ -1,9 +1,9 @@
-ARG NODE_IMAGE=docker.io/library/node:24-alpine
-ARG RUNTIME_IMAGE=docker.io/library/node:24-alpine
+ARG NODE_IMAGE=node:24-bookworm-slim
+ARG RUNTIME_IMAGE=node:24-bookworm-slim
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # Build Stage
-# -----------------------------------------------------------------------------
+# =============================================================================
 FROM ${NODE_IMAGE} AS build
 
 ARG HTTP_PROXY
@@ -21,7 +21,14 @@ ENV no_proxy=${no_proxy}
 ENV NO_PROXY=${NO_PROXY}
 ENV CI=true
 
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        make \
+        g++ \
+        git \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -80,35 +87,36 @@ COPY prompt-templates ./prompt-templates
 COPY assets ./assets
 COPY plugins/_official ./plugins/_official
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # Runtime Stage
-# -----------------------------------------------------------------------------
+# =============================================================================
 FROM ${RUNTIME_IMAGE}
 
 ARG OPENCODE_VERSION=latest
 
-RUN apk add --no-cache \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         tini \
         bash \
         git \
         poppler-utils \
         ca-certificates && \
-    update-ca-certificates
+    rm -rf /var/lib/apt/lists/*
 
 #
-# Create non-root user WITH a real home directory
+# Create application user
 #
-RUN addgroup -S -g 1001 open-design && \
-    adduser \
-        -S \
-        -D \
-        -u 1001 \
-        -G open-design \
-        -h /home/open-design \
+RUN groupadd --gid 1001 open-design && \
+    useradd \
+        --uid 1001 \
+        --gid open-design \
+        --create-home \
+        --home-dir /home/open-design \
+        --shell /bin/bash \
         open-design
 
 #
-# Install OpenCode CLI
+# Install OpenCode globally
 #
 RUN npm install -g opencode-ai@${OPENCODE_VERSION} && \
     npm cache clean --force && \
@@ -117,7 +125,7 @@ RUN npm install -g opencode-ai@${OPENCODE_VERSION} && \
 WORKDIR /app
 
 #
-# Application
+# Copy application
 #
 COPY --from=build --chown=open-design:open-design /app/deploy/daemon ./apps/daemon
 COPY --from=build --chown=open-design:open-design /app/apps/web/out ./apps/web/out
@@ -133,7 +141,7 @@ COPY --from=build --chown=open-design:open-design /app/assets/community-pets ./a
 COPY --from=build --chown=open-design:open-design /app/plugins/_official ./plugins/_official
 
 #
-# Create writable directories for OpenDesign/OpenCode
+# Prepare writable directories
 #
 RUN mkdir -p \
         /app/.od \
@@ -163,7 +171,7 @@ ENV OD_HOME=/home/open-design/.od
 ENV TMPDIR=/tmp
 
 ENV NODE_ENV=production
-ENV NODE_OPTIONS=--max-old-space-size=192
+ENV NODE_OPTIONS="--max-old-space-size=192"
 
 ENV OD_BIND_HOST=0.0.0.0
 ENV OD_PORT=7456
@@ -171,10 +179,18 @@ ENV OD_PORT=7456
 ENV OPENCODE_DISABLE_AUTOUPDATE=true
 ENV OPENCODE_DISABLE_PRUNE=true
 
+#
+# Validate runtime dependencies
+#
+RUN node --version && \
+    npm --version && \
+    git --version && \
+    opencode --version
+
 EXPOSE 7456
 
 USER open-design
 
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 
 CMD ["node", "apps/daemon/dist/cli.js", "--no-open"]

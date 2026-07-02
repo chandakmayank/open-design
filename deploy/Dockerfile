@@ -82,7 +82,10 @@ FROM ${RUNTIME_IMAGE}
 
 RUN apk add --no-cache tini poppler-utils bash git && \
     addgroup -S -g 1001 open-design && \
-    adduser -S -D -H -u 1001 -G open-design open-design
+    adduser -S -D -H -u 1001 -G open-design open-design && \
+    \
+    # Install OpenCode CLI globally
+    npm install -g opencode-ai
 
 WORKDIR /app
 COPY --from=build --chown=open-design:open-design /app/deploy/daemon ./apps/daemon
@@ -107,6 +110,10 @@ ENV NODE_ENV=production
 ENV NODE_OPTIONS=--max-old-space-size=192
 ENV OD_BIND_HOST=0.0.0.0
 ENV OD_PORT=7456
+
+# Optional: tweak OpenCode behavior in containers
+ENV OPENCODE_DISABLE_AUTOUPDATE=true
+ENV OPENCODE_DISABLE_PRUNE=true
 
 EXPOSE 7456
 
